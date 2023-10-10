@@ -62,8 +62,8 @@ def run_command(
     if sub_process.returncode != 0:
         if hide_cmd:
             LOGGER.info(
-                f"Command Failed to run. rc: {sub_process.returncode}, out: {out_decoded},"
-                f" error: {err_decoded}"
+                f"Command Failed to run. rc: {sub_process.returncode}, out:"
+                f" {out_decoded}, error: {err_decoded}"
             )
         else:
             LOGGER.error(error_msg)
