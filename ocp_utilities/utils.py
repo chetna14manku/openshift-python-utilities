@@ -17,6 +17,7 @@ def run_command(
     timeout=None,
     capture_output=True,
     check=True,
+    hide_cmd=False,
     **kwargs,
 ):
     """
@@ -28,13 +29,19 @@ def run_command(
         shell (bool, default False): run subprocess with shell toggle
         timeout (int, optional): Command wait timeout
         capture_output (bool, default False): Capture command output
-        check (boot, default True):  If check is True and the exit code was non-zero, it raises a
+        check (bool, default True):  If check is True and the exit code was non-zero, it raises a
             CalledProcessError
+        hide_cmd (bool, default False): If hide_cmd is True and check=False
+             CalledProcessError will not get raise and command will not be printed.
 
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    LOGGER.info(f"Running {' '.join(command)} command")
+    if not hide_cmd:
+        LOGGER.info(f"Running {' '.join(command)} command")
+    else:
+        LOGGER.info("Running Command with sensitive data")
+
     sub_process = subprocess.run(
         command,
         capture_output=capture_output,
@@ -51,8 +58,15 @@ def run_command(
         f"Failed to run {command}. rc: {sub_process.returncode}, out: {out_decoded},"
         f" error: {err_decoded}"
     )
+
     if sub_process.returncode != 0:
-        LOGGER.error(error_msg)
+        if hide_cmd:
+            LOGGER.info(
+                f"Command Failed to run. rc: {sub_process.returncode}, out: {out_decoded},"
+                f" error: {err_decoded}"
+            )
+        else:
+            LOGGER.error(error_msg)
         return False, out_decoded, err_decoded
 
     # From this point and onwards we are guaranteed that sub_process.returncode == 0
