@@ -17,7 +17,7 @@ def run_command(
     timeout=None,
     capture_output=True,
     check=True,
-    hide_cmd=False,
+    hide_log_command=False,
     **kwargs,
 ):
     """
@@ -31,21 +31,20 @@ def run_command(
         capture_output (bool, default False): Capture command output
         check (bool, default True):  If check is True and the exit code was non-zero, it raises a
             CalledProcessError
-        hide_cmd (bool, default False): If hide_cmd is True and check=False
-             CalledProcessError will not get raise and command will not be printed.
+        hide_log_command (bool, default False): If hide_log_command is True and check will be set to False,
+            CalledProcessError will not get raise and command will not be printed.
 
     Returns:
         tuple: True, out if command succeeded, False, err otherwise.
     """
-    if not hide_cmd:
-        LOGGER.info(f"Running {' '.join(command)} command")
-    else:
-        LOGGER.info("Running Command with sensitive data")
+    command_for_log = ["Hide", "By", "User"] if hide_log_command else command
+
+    LOGGER.info(f"Running {' '.join(command_for_log)} command")
 
     sub_process = subprocess.run(
         command,
         capture_output=capture_output,
-        check=check,
+        check=check if not hide_log_command else False,
         shell=shell,
         text=True,
         timeout=timeout,
@@ -55,18 +54,12 @@ def run_command(
     err_decoded = sub_process.stderr
 
     error_msg = (
-        f"Failed to run {command}. rc: {sub_process.returncode}, out: {out_decoded},"
+        f"Failed to run {command_for_log}. rc: {sub_process.returncode}, out: {out_decoded},"
         f" error: {err_decoded}"
     )
 
     if sub_process.returncode != 0:
-        if hide_cmd:
-            LOGGER.info(
-                f"Command Failed to run. rc: {sub_process.returncode}, out:"
-                f" {out_decoded}, error: {err_decoded}"
-            )
-        else:
-            LOGGER.error(error_msg)
+        LOGGER.error(error_msg)
         return False, out_decoded, err_decoded
 
     # From this point and onwards we are guaranteed that sub_process.returncode == 0
