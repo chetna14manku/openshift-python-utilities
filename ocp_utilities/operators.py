@@ -135,6 +135,7 @@ def install_operator(
     target_namespaces=None,
     timeout=TIMEOUT_30MIN,
     operator_namespace=None,
+    source_image=None,
     iib_index_image=None,
     brew_token=None,
 ):
@@ -150,6 +151,7 @@ def install_operator(
             If not provided, a namespace with te operator name will be created and used.
         timeout (int): Timeout in seconds to wait for operator to be ready.
         operator_namespace (str, optional): Operator namespace, if not provided, operator name will be used.
+        source_image (str, optional): Source image url, If provided install operator from this CatalogSource Image.
         iib_index_image (str, optional): iib index image url, If provided install operator from iib index image.
         brew_token (str, optional): Token to access iib index image registry.
     """
@@ -167,9 +169,21 @@ def install_operator(
             operator_market_namespace=operator_market_namespace,
             admin_client=admin_client,
         )
+    elif source_image:
+        source_name = f"catalog-{name}"
+        catalog_source = CatalogSource(
+            name=source_name,
+            namespace=operator_market_namespace,
+            display_name=source_name,
+            image=source_image,
+            publisher=source_name,
+            source_type="grpc",
+            update_strategy_registry_poll_interval="30m",
+        )
+        catalog_source.deploy(wait=True)
     else:
         if not source:
-            raise ValueError("source must be provided if not using iib_index_image")
+            raise ValueError("source must be provided if not using iib_index_image or source_image")
 
     operator_namespace = operator_namespace or name
     if target_namespaces:
