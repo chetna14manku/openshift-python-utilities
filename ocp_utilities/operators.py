@@ -175,6 +175,7 @@ def install_operator(
     elif source_image:
         source_name = f"catalog-{name}"
         catalog_source = create_catalog_source_from_image(
+            admin_client=admin_client,
             name=source_name,
             namespace=operator_market_namespace,
             image=source_image,
@@ -352,6 +353,7 @@ def create_catalog_source_for_iib_install(
     )
 
     iib_catalog_source = create_catalog_source_from_image(
+        admin_client=admin_client,
         name=name,
         namespace=operator_market_namespace,
         image=_iib_index_image,
@@ -360,12 +362,13 @@ def create_catalog_source_for_iib_install(
 
 
 def create_catalog_source_from_image(
-    name, namespace, image, source_type=None, update_strategy_registry_poll_interval=None
+    name, namespace, image, source_type=None, update_strategy_registry_poll_interval=None, admin_client=None
 ):
     """
     Create CatalogSource for given image
 
     Args:
+        admin_client (DynamicClient): Cluster client.
         name (str): Name for the catalog source (used in 'name, display_name and publisher').
         image (str): Image index for the catalog.
         namespace (str): Namespace where CatalogSource will be created.
@@ -377,6 +380,7 @@ def create_catalog_source_from_image(
         CatalogSource: catalog source object.
     """
     catalog_source = CatalogSource(
+        client=admin_client,
         name=name,
         namespace=namespace,
         display_name=name,
