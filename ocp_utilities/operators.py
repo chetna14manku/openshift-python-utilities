@@ -1,4 +1,8 @@
 from pprint import pformat
+import shutil
+from pathlib import Path
+import click
+import os
 
 from kubernetes.dynamic.exceptions import ResourceNotFoundError
 from ocp_resources.catalog_source import CatalogSource
@@ -13,6 +17,7 @@ from ocp_resources.subscription import Subscription
 from ocp_resources.utils import TimeoutExpiredError, TimeoutSampler
 from ocp_resources.validating_webhook_config import ValidatingWebhookConfiguration
 from simple_logger.logger import get_logger
+from ocp_utilities.must_gather import run_must_gather
 
 from ocp_utilities.infra import cluster_resource, create_icsp, create_update_secret
 
@@ -138,6 +143,8 @@ def install_operator(
     source_image=None,
     iib_index_image=None,
     brew_token=None,
+    must_gather_output_dir=None,
+    kubeconfig=None
 ):
     """
     Install operator on cluster.
@@ -154,6 +161,8 @@ def install_operator(
         source_image (str, optional): Source image url, If provided install operator from this CatalogSource Image.
         iib_index_image (str, optional): iib index image url, If provided install operator from iib index image.
         brew_token (str, optional): Token to access iib index image registry.
+        must_gather_output_dir (str, optional): Path to base folder where must-gather logs will be stored
+        kubeconfig (str, optional): Path to kubeconfig, required if must_gather_output_dir param exists
 
     Raises:
         ValueError: When either one of them not provided (source, source_image, iib_index_image)
@@ -161,65 +170,73 @@ def install_operator(
     catalog_source = None
     operator_market_namespace = "openshift-marketplace"
 
-    if iib_index_image:
-        if not brew_token:
-            raise ValueError("brew_token must be provided for iib_index_image")
+    try:
+        if iib_index_image:
+            if not brew_token:
+                raise ValueError("brew_token must be provided for iib_index_image")
 
-        catalog_source = create_catalog_source_for_iib_install(
-            name=f"iib-catalog-{name.lower()}",
-            iib_index_image=iib_index_image,
-            brew_token=brew_token,
-            operator_market_namespace=operator_market_namespace,
-            admin_client=admin_client,
+            catalog_source = create_catalog_source_for_iib_install(
+                name=f"iib-catalog-{name.lower()}",
+                iib_index_image=iib_index_image,
+                brew_token=brew_token,
+                operator_market_namespace=operator_market_namespace,
+                admin_client=admin_client,
+            )
+        elif source_image:
+            source_name = f"catalog-{name}"
+            catalog_source = create_catalog_source_from_image(
+                admin_client=admin_client,
+                name=source_name,
+                namespace=operator_market_namespace,
+                image=source_image,
+            )
+        else:
+            if not source:
+                raise ValueError("source must be provided if not using iib_index_image or source_image")
+
+        operator_namespace = operator_namespace or name
+        if target_namespaces:
+            for namespace in target_namespaces:
+                ns = Namespace(client=admin_client, name=namespace)
+                if ns.exists:
+                    continue
+
+                ns.deploy(wait=True)
+
+        else:
+            ns = Namespace(client=admin_client, name=operator_namespace)
+            if not ns.exists:
+                ns.deploy(wait=True)
+
+        OperatorGroup(
+            client=admin_client,
+            name=name,
+            namespace=operator_namespace,
+            target_namespaces=target_namespaces,
+        ).deploy(wait=True)
+
+        subscription = Subscription(
+            client=admin_client,
+            name=name,
+            namespace=operator_namespace,
+            channel=channel,
+            source=catalog_source.name if catalog_source else source,
+            source_namespace=operator_market_namespace,
+            install_plan_approval="Automatic",
         )
-    elif source_image:
-        source_name = f"catalog-{name}"
-        catalog_source = create_catalog_source_from_image(
+        subscription.deploy(wait=True)
+        wait_for_operator_install(
             admin_client=admin_client,
-            name=source_name,
-            namespace=operator_market_namespace,
-            image=source_image,
+            subscription=subscription,
+            timeout=timeout,
         )
-    else:
-        if not source:
-            raise ValueError("source must be provided if not using iib_index_image or source_image")
 
-    operator_namespace = operator_namespace or name
-    if target_namespaces:
-        for namespace in target_namespaces:
-            ns = Namespace(client=admin_client, name=namespace)
-            if ns.exists:
-                continue
-
-            ns.deploy(wait=True)
-
-    else:
-        ns = Namespace(client=admin_client, name=operator_namespace)
-        if not ns.exists:
-            ns.deploy(wait=True)
-
-    OperatorGroup(
-        client=admin_client,
-        name=name,
-        namespace=operator_namespace,
-        target_namespaces=target_namespaces,
-    ).deploy(wait=True)
-
-    subscription = Subscription(
-        client=admin_client,
-        name=name,
-        namespace=operator_namespace,
-        channel=channel,
-        source=catalog_source.name if catalog_source else source,
-        source_namespace=operator_market_namespace,
-        install_plan_approval="Automatic",
-    )
-    subscription.deploy(wait=True)
-    wait_for_operator_install(
-        admin_client=admin_client,
-        subscription=subscription,
-        timeout=timeout,
-    )
+    except Exception as ex:
+        LOGGER.error(
+            f"{name} Install Failed."
+        )
+        if must_gather_output_dir:
+            collect_must_gather(must_gather_output_dir=must_gather_output_dir, kubeconfig_path=kubeconfig, operator_name=name)
 
 
 def uninstall_operator(
@@ -391,3 +408,46 @@ def create_catalog_source_from_image(
     )
     catalog_source.deploy(wait=True)
     return catalog_source
+
+
+def collect_must_gather(must_gather_output_dir, kubeconfig_path, cluster_name, operator_name):
+    """
+    Run must gather command with an option to create target directory.
+
+    Args:
+        must_gather_output_dir (str): path to base directory
+        kubeconfig_path (str): path to kubeconfig
+
+
+    Returns:
+        str: command output
+    """
+
+    target_dir = os.path.join(
+        must_gather_output_dir, "must-gather", cluster_name, operator_name
+    )
+
+    try:
+        if not os.path.exists(kubeconfig_path):
+            LOGGER.error("Kubeconfig does not exist; cannot run must-gather.")
+            return
+
+        LOGGER.info(f"Prepare must-gather target extracted directory {target_dir}.")
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+
+        click.echo(
+            f"Collect must-gather for cluster {cluster_name}"
+        )
+        run_must_gather(
+            target_base_dir=target_dir,
+            kubeconfig=kubeconfig_path,
+        )
+        LOGGER.success("must-gather collected")
+
+    except Exception as ex:
+        LOGGER.error(
+            f"Failed to run must-gather \n{ex}",
+        )
+
+        LOGGER.info(f"Delete must-gather target directory {target_dir}.")
+        shutil.rmtree(target_dir)
