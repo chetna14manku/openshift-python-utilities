@@ -1,4 +1,7 @@
 import shlex
+import shutil
+from pathlib import Path
+import os
 
 from simple_logger.logger import get_logger
 
@@ -51,3 +54,41 @@ def run_must_gather(
         flag_string = "".join([f" --{flag_name}" for flag_name in flag_names])
         base_command += f" {flag_string}"
     return run_command(command=shlex.split(base_command), check=False)[1]
+
+
+def collect_must_gather(must_gather_output_dir, kubeconfig_path, cluster_name, product_name):
+    """
+    Run must-gather command with an option to create target directory using must_gather_output_dir, cluster_name, product_name.
+    (This function can be used for running must-gather incase any product installation fails.)
+
+    Args:
+        must_gather_output_dir (str): Path to base directory where must-gather logs will be stored
+        kubeconfig_path (str): Path to kubeconfig
+        cluster_name (str): Cluster Name for which must-gather will run
+        product_name (str): Product Name installed on given cluster
+    """
+
+    target_dir = os.path.join(must_gather_output_dir, "must-gather", product_name, cluster_name)
+
+    try:
+        if not os.path.exists(kubeconfig_path):
+            LOGGER.error("Kubeconfig does not exist; cannot run must-gather.")
+            return
+
+        LOGGER.info(f"Prepare must-gather target extracted directory {target_dir}.")
+        Path(target_dir).mkdir(parents=True, exist_ok=True)
+
+        LOGGER.info(f"Collect must-gather for cluster {cluster_name}")
+        run_must_gather(
+            target_base_dir=target_dir,
+            kubeconfig=kubeconfig_path,
+        )
+        LOGGER.success("must-gather collected")
+
+    except Exception as ex:
+        LOGGER.error(
+            f"Failed to run must-gather \n{ex}",
+        )
+
+        LOGGER.info(f"Delete must-gather target directory {target_dir}.")
+        shutil.rmtree(target_dir)

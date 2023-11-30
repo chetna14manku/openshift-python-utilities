@@ -1,7 +1,4 @@
 from pprint import pformat
-import shutil
-from pathlib import Path
-import os
 
 from kubernetes.dynamic.exceptions import ResourceNotFoundError
 from ocp_resources.catalog_source import CatalogSource
@@ -16,7 +13,7 @@ from ocp_resources.subscription import Subscription
 from ocp_resources.utils import TimeoutExpiredError, TimeoutSampler
 from ocp_resources.validating_webhook_config import ValidatingWebhookConfiguration
 from simple_logger.logger import get_logger
-from ocp_utilities.must_gather import run_must_gather
+from ocp_utilities.must_gather import collect_must_gather
 
 from ocp_utilities.infra import cluster_resource, create_icsp, create_update_secret
 
@@ -162,8 +159,8 @@ def install_operator(
         iib_index_image (str, optional): iib index image url, If provided install operator from iib index image.
         brew_token (str, optional): Token to access iib index image registry.
         must_gather_output_dir (str, optional): Path to base directory where must-gather logs will be stored
-        kubeconfig (str, optional): Path to kubeconfig, required if must_gather_output_dir param exists
-        cluster_name (str, optional): Cluster Name, required if must_gather_output_dir param exists
+        kubeconfig (str, optional): Path to kubeconfig, required if must_gather_output_dir param provided
+        cluster_name (str, optional): Cluster Name, required if must_gather_output_dir param provided
 
     Raises:
         ValueError: When either one of them not provided (source, source_image, iib_index_image)
@@ -171,6 +168,9 @@ def install_operator(
     catalog_source = None
     operator_market_namespace = "openshift-marketplace"
 
+    if must_gather_output_dir:
+        if not kubeconfig or not cluster_name:
+            raise ValueError("[cluster_name, kubeconfig] params is required for running must-gather")
     try:
         if iib_index_image:
             if not brew_token:
@@ -234,15 +234,12 @@ def install_operator(
     except Exception as ex:
         LOGGER.error(f"{name} Install Failed. \n{ex}")
         if must_gather_output_dir:
-            if kubeconfig and cluster_name:
-                collect_must_gather(
-                    must_gather_output_dir=must_gather_output_dir,
-                    kubeconfig_path=kubeconfig,
-                    operator_name=name,
-                    cluster_name=cluster_name,
-                )
-            else:
-                LOGGER.error("[cluster_name, kubeconfig] params is required for running must-gather")
+            collect_must_gather(
+                must_gather_output_dir=must_gather_output_dir,
+                kubeconfig_path=kubeconfig,
+                cluster_name=cluster_name,
+                product_name=name,
+            )
 
 
 def uninstall_operator(
@@ -414,43 +411,3 @@ def create_catalog_source_from_image(
     )
     catalog_source.deploy(wait=True)
     return catalog_source
-
-
-def collect_must_gather(must_gather_output_dir, kubeconfig_path, cluster_name, operator_name):
-    """
-    Run must gather command with an option to create target directory.
-
-    Args:
-        must_gather_output_dir (str): Path to base directory where must-gather logs will be stored
-        kubeconfig_path (str): Path to kubeconfig
-        cluster_name (str): Cluster Name
-        operator_name (str): Operator Name
-
-    Returns:
-        str: command output
-    """
-
-    target_dir = os.path.join(must_gather_output_dir, "must-gather", cluster_name, operator_name)
-
-    try:
-        if not os.path.exists(kubeconfig_path):
-            LOGGER.error("Kubeconfig does not exist; cannot run must-gather.")
-            return
-
-        LOGGER.info(f"Prepare must-gather target extracted directory {target_dir}.")
-        Path(target_dir).mkdir(parents=True, exist_ok=True)
-
-        LOGGER.info(f"Collect must-gather for cluster {cluster_name}")
-        run_must_gather(
-            target_base_dir=target_dir,
-            kubeconfig=kubeconfig_path,
-        )
-        LOGGER.success("must-gather collected")
-
-    except Exception as ex:
-        LOGGER.error(
-            f"Failed to run must-gather \n{ex}",
-        )
-
-        LOGGER.info(f"Delete must-gather target directory {target_dir}.")
-        shutil.rmtree(target_dir)
