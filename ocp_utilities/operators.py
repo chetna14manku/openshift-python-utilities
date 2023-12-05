@@ -159,8 +159,8 @@ def install_operator(
         iib_index_image (str, optional): iib index image url, If provided install operator from iib index image.
         brew_token (str, optional): Token to access iib index image registry.
         must_gather_output_dir (str, optional): Path to base directory where must-gather logs will be stored
-        kubeconfig (str, optional): Path to kubeconfig, required if must_gather_output_dir param provided
-        cluster_name (str, optional): Cluster Name, required if must_gather_output_dir param provided
+        kubeconfig (str, optional): Path to kubeconfig
+        cluster_name (str, optional): Cluster Name
 
     Raises:
         ValueError: When either one of them not provided (source, source_image, iib_index_image)
@@ -169,8 +169,8 @@ def install_operator(
     operator_market_namespace = "openshift-marketplace"
 
     if must_gather_output_dir:
-        if not kubeconfig or not cluster_name:
-            raise ValueError("[cluster_name, kubeconfig] params is required for running must-gather")
+        if not cluster_name:
+            raise ValueError("'cluster_name' param is required for running must-gather of cluster")
     try:
         if iib_index_image:
             if not brew_token:
@@ -240,6 +240,7 @@ def install_operator(
                 cluster_name=cluster_name,
                 product_name=name,
             )
+        raise
 
 
 def uninstall_operator(

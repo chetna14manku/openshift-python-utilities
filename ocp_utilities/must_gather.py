@@ -56,25 +56,19 @@ def run_must_gather(
     return run_command(command=shlex.split(base_command), check=False)[1]
 
 
-def collect_must_gather(must_gather_output_dir, kubeconfig_path, cluster_name, product_name):
+def collect_must_gather(must_gather_output_dir, cluster_name, product_name, kubeconfig_path=None):
     """
-    Run must-gather command with an option to create target directory using must_gather_output_dir, cluster_name, product_name.
-    (This function can be used for running must-gather incase any product installation fails.)
+    Run must-gather for specified cluster.
 
     Args:
         must_gather_output_dir (str): Path to base directory where must-gather logs will be stored
-        kubeconfig_path (str): Path to kubeconfig
         cluster_name (str): Cluster Name for which must-gather will run
         product_name (str): Product Name installed on given cluster
+        kubeconfig_path (str, optional): Path to kubeconfig
     """
-
     target_dir = os.path.join(must_gather_output_dir, "must-gather", product_name, cluster_name)
 
     try:
-        if not os.path.exists(kubeconfig_path):
-            LOGGER.error("Kubeconfig does not exist; cannot run must-gather.")
-            return
-
         LOGGER.info(f"Prepare must-gather target extracted directory {target_dir}.")
         Path(target_dir).mkdir(parents=True, exist_ok=True)
 
