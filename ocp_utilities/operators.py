@@ -221,12 +221,13 @@ def install_operator(
             if not ns.exists:
                 ns.deploy(wait=True)
 
-        OperatorGroup(
-            client=admin_client,
-            name=name,
-            namespace=operator_namespace,
-            target_namespaces=target_namespaces,
-        ).deploy(wait=True)
+        if operator_namespace != "openshift-operators":
+            OperatorGroup(
+                client=admin_client,
+                name=name,
+                namespace=operator_namespace,
+                target_namespaces=target_namespaces or [operator_namespace],
+            ).deploy(wait=True)
 
         subscription = Subscription(
             client=admin_client,
